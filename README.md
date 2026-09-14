@@ -161,9 +161,28 @@ cd D:\git-repo\DevEnvSetup
 
 这些是踩过的坑，写下来避免以后重复调试：
 
-1. **`SetWindowPos(HWND_TOP)` 的压栈在本机完全无效**——返回成功但栈序永不变
-   （同一窗口连调 8 次 rank 不动）。有效的是 `BringWindowToTop` +
-   `SetForegroundWindow`（即"激活"），脚本因此用激活方式压栈。
+1. **`SetWindowPos(HWND_TOP)` 抬高窗口可能被静默忽略**——返回 `True` 但栈序不变；
+   压低（`HWND_BOTTOM`）和**激活**（`BringWindowToTop` + `SetForegroundWindow`）
+   则真实生效。脚本因此不依赖 `SetWindowPos` 压栈，而改用激活方式，
+   并附带真实栈序自检与最多 3 轮重试。
+
+   实测到的**能力矩阵**（同一个终端窗口，逐项单独调用）：
+
+   | 操作 | 结果 |
+   |---|---|
+   | `HWND_TOP`（抬高） | ✗ 返回 True，rank 不变 |
+   | `HWND_BOTTOM`（压低） | ✔ 生效 |
+   | `HWND_TOPMOST`（置顶） | ✔ 升到最前 |
+   | `HWND_NOTOPMOST`（清标记） | ✔ 留在最前 |
+   | 激活（`BringWindowToTop`+`SetForegroundWindow`） | ✔ 生效 |
+
+   **根因**：被抬的那个终端窗口是**发起进程自己的宿主控制台窗口**（ConPTY 宿主）。
+   系统不允许进程用 `HWND_TOP` 抬高自己的宿主终端窗口，而 `HWND_TOPMOST`
+   走的是另一条不受此限制的路径——所以压栈要用激活，或对终端用
+   topmost 往返（`HWND_TOPMOST` → `HWND_NOTOPMOST`，代价是窗口闪一下）。
+
+   注意：这条**与 ClassIsland / GrantUiAccess 无关**——关掉 ClassIsland 后
+   终端依然抬不动，这是最直接的反证。ClassIsland 的问题另见下节。
 2. **`GetSystemMetrics` 必须在声明 DPI 感知之后读**，否则拿到的是虚拟化尺寸
    （本机是 `1707x960` 而非 `3840x2160`）。
 3. **`System.Windows.Forms` 的 `Screen.Bounds` 不能用作屏幕尺寸**：它在程序集加载时
@@ -182,6 +201,70 @@ cd D:\git-repo\DevEnvSetup
    只能按**窗口句柄**排除，不能按进程排除（否则会把脚本自己开的终端也排掉）。
 9. **`wt.exe` 在窗口创建前就返回**，因此新建标签页还要读取的临时文件不能在 bat 里立刻删除。
 10. **`timeout` 命令在输入被重定向时不可用**，延时需退回 `ping -n`。
+
+## 已知干扰源：ClassIsland + GrantUiAccess（调查记录）
+
+本机常驻 **ClassIsland**，并安装了 **GrantUiAccess** 插件。查证结论如下，供以后复用。
+
+### 插件在做什么
+
+源码：`D:\git-repo\GrantUiAccess`（`HelloWRC/GrantUiAccess`）
+
+- `uiaccess/uiaccess.c` 的 `PrepareForUIAccess()`：复制同会话 `winlogon.exe` 令牌，
+  临时 `SetThreadToken` 冒充 SYSTEM 取得 `SeTcbPrivilege`，用
+  `SetTokenInformation(TokenUIAccess = TRUE)` 造出 UIAccess 令牌，再
+  `CreateProcessAsUser` **重启自己**。
+- `GrantUiAccess/Plugin.cs`：启动完成后把 **主窗口 `Topmost` 关-开一次**，钉进最顶层
+  （插件自述：*"使 ClassIsland 可以置顶到全屏 UWP 应用和系统界面上"*）。
+
+实测确认插件在生效：
+
+```
+ClassIsland.Desktop  pid=12520  window=ClassIsland  TOPMOST  elevated=1  uiAccess=1
+explorer             pid=7676                                elevated=1  uiAccess=0   (对照)
+```
+
+### 影响
+
+- ClassIsland 的挂件窗口是 **topmost**，会一直浮在所有普通窗口之上（设计如此）。
+- 但**它并不是**"终端抬不动"的原因——关掉 ClassIsland 后终端依然抬不动，见上一节。
+
+### 已知缺陷与上游修法（未合并）
+
+任务栏残留：ClassIsland 2.0+ 下每次触发提醒，任务栏会出现无法关闭的"顶层效果窗口"。
+
+- Issue：`HelloWRC/GrantUiAccess#16`（open）、`#12`（closed，同类现象）
+- PR：`HelloWRC/GrantUiAccess#18`（**closed 未合并**，仅改 `Plugin.cs`，+60/−1）
+  - 作者的因果分析：主窗口 `Topmost` 往返时，`TopmostEffectWindow` 的
+    `WS_EX_TOOLWINDOW`（决定是否出现在任务栏）被刷新掉
+  - 修法：重置 `Topmost` 后再遍历窗口，找到 `TopmostEffectWindow` 重设
+    `Topmost` 并补回 `WS_EX_TOOLWINDOW` + `SWP_FRAMECHANGED`
+  - 未合并原因：维护者实测**问题依旧**（用的是当时 CI 版本 `classisland@3f67e46`），
+    而作者称在 ClassIsland 2.0.3.2 上已修复，两边版本不一致导致无法验证
+
+**更优雅的本体修法（已验证可行性，尚未实施）**——在 ClassIsland 本体层面修，
+不需要反射、也不需要改插件：
+
+| 事实 | 位置 |
+|---|---|
+| `TopmostEffectWindow.Show()` 已在申请正确样式（`ShowInTaskbar=false` + `Topmost` + `Transparent\|ToolWindow\|Topmost\|SkipManagement`） | `ClassIsland/Views/TopmostEffectWindow.axaml.cs` |
+| `WS_EX_TOOLWINDOW` 的生成本体已有（CsWin32） | `platforms/ClassIsland.Platforms.Windows/Services/WindowPlatformService.cs` 的 `ToolWindow` 分支 |
+| **全解决方案没有一处 `SWP_FRAMECHANGED`** | 全仓搜索 = 0 命中 |
+
+根因判断：`SetWindowLong(GWL_EXSTYLE, …)` **只改样式、不通知 shell**，
+任务栏按钮只在 `SetWindowPos(..., SWP_FRAMECHANGED)` 时才被重新评估。
+
+建议改动（两处都很小）：
+
+1. 平台层：`WindowPlatformService` 修改 `WS_EX_TOOLWINDOW`（以及 `WS_EX_LAYERED`）后，
+   追加一次带 `SWP_FRAMECHANGED` 的 `SetWindowPos` 刷新非客户区；
+2. 本体层：`MainWindow.Topmost` 变化后，重放一次特效窗口的窗口特性，
+   使被冲掉的样式立刻补回——在 CI 本体内部完成，比 PR #18 用反射遍历
+   `AppBase.Current.Windows` 找窗口更稳。
+
+> 以上仅为设计记录，**未实施**（用户选择先不动上游代码）。
+> 若哪天要做：按 `ClassIslands/ClassIsland/AGENTS.md` 的流程先说明再改，
+> 验证用 `dotnet build ClassIsland.Desktop/ClassIsland.Desktop.csproj -c Debug`。
 
 ## 文件
 
