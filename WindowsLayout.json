@@ -1,0 +1,42 @@
+{
+  "note": "Window layout profile. Rect coordinates are PHYSICAL pixels measured on the primary monitor (3840x2160, taskbar 108 px). Matching uses titleClass tokens expanded in WindowsLayout.ps1, so this file stays encoding-independent.",
+  "monitor": {
+    "bounds": { "x": 0, "y": 0, "w": 3840, "h": 2160 },
+    "work":   { "x": 0, "y": 0, "w": 3840, "h": 2052 }
+  },
+  "windows": [
+    {
+      "id": "weather",
+      "description": "full-screen Edge with the Guiyang weather page",
+      "match": { "process": "msedge", "class": "Chrome_WidgetWin_1", "titleClass": "weather", "pick": "largest" },
+      "rect": { "x": -14, "y": -14, "w": 3868, "h": 2080 },
+      "launch": "https://www.weather.com.cn/weather40dn/101250502.shtml",
+      "launchOrder": 0,
+      "zOrder": 0
+    },
+    {
+      "id": "rightedge",
+      "description": "right-hand Edge window: dsh web UI (3080) + DeepSeek chat",
+      "match": { "process": "msedge", "class": "Chrome_WidgetWin_1", "notTitleClass": "weather", "pick": "largest" },
+      "rect": { "x": 2488, "y": 0, "w": 1367, "h": 2052 },
+      "launch": [ "https://chat.deepseek.com/a/chat/s/cfbe966e-9e32-4d6d-9eba-ca49b6a6d8e8" ],
+      "launchOrder": 1,
+      "zOrder": 1
+    },
+    {
+      "id": "terminal",
+      "description": "Windows Terminal: tab 1 runs dsh web in D:\\git-repo, tab 2 is pwsh in D:\\git-repo\\ServerPluginCore",
+      "match": { "process": "WindowsTerminal", "class": "CASCADIA_HOSTING_WINDOW_CLASS", "pick": "oldest" },
+      "rect": { "x": -15, "y": 0, "w": 2557, "h": 1191 },
+      "launchOrder": 2,
+      "zOrder": 2
+    }
+  ],
+  "zOrderTopToBottom": [ "terminal", "rightedge", "weather" ],
+  "terminal": {
+    "tabs": [
+      { "dir": "D:\\git-repo", "command": "dsh web" },
+      { "dir": "D:\\git-repo\\ServerPluginCore" }
+    ]
+  }
+}
