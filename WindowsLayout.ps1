@@ -12,7 +12,7 @@
       3. terminal  WindowsTerminal (-15, 0) 2557x1191
                    tab 1: dsh web, at D:\git-repo
                    tab 2: pwsh,    at D:\git-repo\ServerPluginCore
-    Z-order (top -> bottom): terminal / rightedge  >  weather.
+    Z-order (top -> bottom): terminal > rightedge > weather.
 
 .PARAMETER Save
     Capture the current geometry of the matching windows into the JSON
@@ -36,10 +36,10 @@
     the excluded windows and the candidates.
 
 .PARAMETER WeatherView
-    After arranging the windows, replay the two gestures Edge has no command
-    line for on the weather window: set page zoom (default 150%) and scroll the
-    page down (default 4 wheel notches).  The keystrokes are only sent once the
-    weather window is confirmed to be in the foreground.
+    After arranging the windows, replay on the weather window the gestures Edge
+    has no command line for: page zoom (default 150%) and scrolling down.
+    The keystrokes are only sent once the weather window is confirmed to be in
+    the foreground; if that fails, nothing is injected.
 
 .PARAMETER ZoomPercent
     Page zoom for -WeatherView.  Must be one of Edge's presets (100, 110, 125,
