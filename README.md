@@ -133,8 +133,10 @@ cd D:\git-repo\DevEnvSetup
 - **改布局位置**：手工摆好 → `.\WindowsLayout.ps1 -Save`。它会重写 `rect`、
   `monitor` 与 `zOrderTopToBottom`；三个窗口缺一个就拒绝保存
 - **换显示器/分辨率**：直接跑即可（坐标按比例换算），想要精确值就重跑 `-Save`
-- **换工作目录**：改 `WindowsLayout.json` 里 `terminal.tabs[].dir` 与各 `launch` URL；
-  bat 里的 `%HERE%` 自动跟随文件位置
+- **换工作目录**：改 `WindowsLayout.bat` 顶部的 `WORKSPACE`（第二标签页 `ServerPluginCore`
+  的起点由它推导），以及 `WindowsLayout.json` 里 `terminal.tabs[].dir` 与各 `launch` URL。
+  注意 `%HERE%` 只表示"本工具所在目录"，**不能**拿它拼工作区里其它工程的路径——
+  本工具已移到 `DevEnvSetup\` 子目录，而 `ServerPluginCore` 仍在工作区根下
 - **不想自动开天气页**：删掉 weather 条目的 `launch`（脚本就不会开它，只负责摆位）
 
 ## 排错
@@ -156,6 +158,7 @@ cd D:\git-repo\DevEnvSetup
 | 天气缩放不到位 | F5 后页面仍在加载。把 `Set-WeatherView` 里 `Start-Sleep -Milliseconds 1500` 调大 |
 | 栈序不一致（红色 `actual` 行） | 脚本已重试至多 3 轮；仍不一致说明窗口管理器吞掉了抬升，见下节 |
 | 从终端里运行脚本，终端没被移动 | 预期行为：脚本把**承载自己的终端**视为宿主，不会另外开一个终端，也不会把它当"已就绪的终端"而跳过创建 |
+| 启动报 `0x8007010b`（"无法访问启动目录"） | `wt.exe` 的 `-d` 指向了不存在的目录。两个标签页的目录由 bat 顶部的 `HERE` 与 `WORKSPACE` 推导，工作区搬动后需同步修改；bat 现在会在启动前显式检查并给出提示 |
 
 ## 本机（Windows）实测到的系统特性
 

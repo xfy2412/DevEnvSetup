@@ -30,6 +30,8 @@ setlocal
 
 set "HERE=%~dp0"
 if "%HERE:~-1%"=="\" set "HERE=%HERE:~0,-1%"
+set "WORKSPACE=D:\git-repo"
+set "PLUGINCORE=%WORKSPACE%\ServerPluginCore"
 set "WINNAME=WindowsLayoutHome"
 set "WRAP=%TEMP%\WindowsLayout.wrap.ps1"
 
@@ -44,6 +46,18 @@ if errorlevel 1 (
 if not exist "%HERE%\WindowsLayout.ps1" (
     echo [WindowsLayout] WindowsLayout.ps1 not found next to this file:
     echo                 %HERE%
+    pause
+    exit /b 1
+)
+
+rem tab 2 starts in the ServerPluginCore working tree, which lives in the
+rem workspace next to this folder - NOT inside it.  A missing directory makes
+rem wt.exe fail to start that tab (error 0x8007010b, "cannot access the start
+rem directory"), so check it up front instead of failing silently later.
+if not exist "%PLUGINCORE%" (
+    echo [WindowsLayout] ServerPluginCore not found:
+    echo                 %PLUGINCORE%
+    echo                 Edit WORKSPACE at the top of this file if the workspace moved.
     pause
     exit /b 1
 )
@@ -73,6 +87,6 @@ rem ---------------------------------------------------------------------------
 
 wt.exe -w "%WINNAME%" ^
   new-tab -d "%HERE%" pwsh -NoProfile -ExecutionPolicy Bypass -NoExit -File "%WRAP%" ; ^
-  new-tab -d "%HERE%\ServerPluginCore"
+  new-tab -d "%PLUGINCORE%"
 
 endlocal
