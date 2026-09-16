@@ -1147,6 +1147,15 @@ foreach ($p in $plan) {
     }
 }
 
+# Helper: report a window's live rectangle, for tracing a window that moves on
+# its own (Edge re-placing an already positioned window is one such case).
+function Write-RectTrace {
+    param([string]$Tag, [long]$Handle)
+    $x = 0; $y = 0; $w = 0; $h = 0
+    if (-not [DshWin32]::Rect([IntPtr]$Handle, [ref]$x, [ref]$y, [ref]$w, [ref]$h)) { return }
+    Write-Verbose ('  [rect] {0,-34} ({1},{2}) {3}x{4}' -f $Tag, $x, $y, $w, $h)
+}
+
 # ---- optional: zoom + scroll the weather page --------------------------------
 # Done BEFORE the z-order pass on purpose: activating the weather window brings
 # it to the front, so the stacking must be re-established afterwards or the
@@ -1154,7 +1163,28 @@ foreach ($p in $plan) {
 if ($WeatherView) {
     Write-Host ''
     Write-Host 'applying weather view (zoom + scroll)...' -ForegroundColor Cyan
+    $weatherHandle = 0L
+    $weatherPlan = $plan | Where-Object { $_.Entry.id -eq 'weather' -and $_.Win } | Select-Object -First 1
+    if ($weatherPlan) { $weatherHandle = [long]$weatherPlan.Win.H }
+    Write-RectTrace 'before weather view' $weatherHandle
     Set-WeatherView -ZoomPercent $ZoomPercent -ScrollTicks $ScrollTicks -Refresh:$Refresh
+    Write-RectTrace 'after  weather view' $weatherHandle
+
+    # The weather gestures make Edge drop the window out of maximised state and
+    # re-place it on the right-hand slot (measured: (-14,-14) 3868x2080 ->
+    # (2511,23) 1377x2057, i.e. straight on top of the right Edge window).
+    # Restore the layout rectangle immediately so the window is never left
+    # parked on the other one; the later re-pin asserts it once more.
+    if ($weatherPlan) {
+        $weatherRect = $targets['weather']
+        $rp = Move-WindowTo $weatherPlan.Win.H $weatherRect -Restore
+        if ($rp.Ok) {
+            Write-Host ('  weather    re-pinned to ({0},{1}) {2}x{3}' -f $weatherRect.x, $weatherRect.y, $weatherRect.w, $weatherRect.h) -ForegroundColor Green
+        } else {
+            Write-Warning ('weather window drifted to ({0},{1}) {2}x{3} after the gestures' -f $rp.X, $rp.Y, $rp.W, $rp.H)
+        }
+        Write-RectTrace 'after  weather re-pin (early)' $weatherHandle
+    }
 }
 
 # ---- collect the windows, then set the stacking ------------------------------
@@ -1216,6 +1246,30 @@ foreach ($id in $bottomUp) {
     if ($unmovedIds -contains $id) { continue }
     [void][DshWin32]::ActivateTopmost($byId[$id].H)
     Start-Sleep -Milliseconds 200
+}
+
+# Re-pin the weather rectangle if anything moved it.
+#
+# Observed: an Edge window that was already at its target can still end up
+# dropped out of maximised state onto the right-hand slot (2511,23 1375x2055)
+# - i.e. exactly on top of the right Edge window - while the script is doing
+# the weather gestures or the stacking.  Whatever the cause (activation, zoom,
+# or Edge re-placing a window it owns), the layout's own rectangle must win, so
+# it is asserted once more as the last geometry action before verification.
+if ($weatherPlanDone = ($plan | Where-Object { $_.Entry.id -eq 'weather' -and $_.Win } | Select-Object -First 1)) {
+    $wW = $weatherPlanDone.Win
+    $rW = $targets['weather']
+    Write-RectTrace 'before weather re-pin' ([long]$wW.H)
+    $cur = Move-WindowTo $wW.H $rW -Restore
+    if (-not $cur.Ok) {
+        $cur = Move-WindowTo $wW.H $rW
+    }
+    if ($cur.Ok) {
+        Write-Host ('  weather    re-pinned to ({0},{1}) {2}x{3}' -f $rW.x, $rW.y, $rW.w, $rW.h) -ForegroundColor Green
+    } else {
+        Write-Warning ('weather window drifted to ({0},{1}) {2}x{3} and the re-pin did not take' -f $cur.X, $cur.Y, $cur.W, $cur.H)
+    }
+    Write-RectTrace 'after  weather re-pin' ([long]$wW.H)
 }
 
 # Step 3: confirm the stack and retry if the window manager swallowed a raise.
